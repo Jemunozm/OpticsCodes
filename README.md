@@ -45,31 +45,32 @@ franjas y su magnitud produce la envolvente de visibilidad.
 
 Fuente:
 
-- `--source`: `mono`, `gaussian` o `csv`.
+- `--source`: `mono`, `rectangular` o `csv`.
 - `--wavelength-nm`: longitud de onda central.
-- `--fwhm-nm`: ancho espectral FWHM para fuente gaussiana.
+- `--width-nm`: ancho espectral para fuente rectangular uniforme.
 - `--spectrum-csv`: archivo con columnas `wavelength_nm,weight`.
 
 Espejos:
 
-- `--mirror-1-azimuth-urad`: inclinacion azimutal del espejo 1.
-- `--mirror-1-cenital-urad`: inclinacion cenital del espejo 1.
-- `--mirror-2-azimuth-urad`: inclinacion azimutal del espejo 2.
-- `--mirror-2-cenital-urad`: inclinacion cenital del espejo 2.
+- `--mirror-1-azimuth-udeg`: inclinacion azimutal del espejo 1 en microgrados.
+- `--mirror-1-cenital-udeg`: inclinacion cenital del espejo 1 en microgrados.
+- `--mirror-2-azimuth-udeg`: inclinacion azimutal del espejo 2 en microgrados.
+- `--mirror-2-cenital-udeg`: inclinacion cenital del espejo 2 en microgrados.
 - `--mirror-2-displacement-um`: desplazamiento axial del espejo 2.
 - `--opd0-um`: diferencia fija de camino optico antes de desplazar el espejo.
 
 Alias relativos:
 
-- `--tilt-azimuth-urad`: fija directamente `mirror_2_azimuth - mirror_1_azimuth`.
-- `--tilt-cenital-urad`: fija directamente `mirror_2_cenital - mirror_1_cenital`.
-- `--tilt-cenith-urad`: alias equivalente, conservado por compatibilidad.
+- `--tilt-azimuth-udeg`: fija directamente `mirror_2_azimuth - mirror_1_azimuth`.
+- `--tilt-cenital-udeg`: fija directamente `mirror_2_cenital - mirror_1_cenital`.
+- Las opciones antiguas con sufijo `urad` siguen disponibles como compatibilidad.
 
 Camara y visualizacion:
 
 - `--pixels-x`, `--pixels-y`: resolucion numerica.
 - `--camera-width-mm`, `--camera-height-mm`: campo fisico de vision.
-- `--zoom`: zoom numerico sobre el campo de vision.
+- `--zoom`: zoom numerico solo sobre el campo de vision de la camara.
+- `--profile-zoom`: zoom visual del grafico del perfil perpendicular.
 - `--profile-samples`: puntos usados en el perfil perpendicular a las franjas.
 
 Haces:
@@ -80,7 +81,7 @@ Haces:
 ## Uso rapido
 
 ```powershell
-python -m michelson.cli --source gaussian --wavelength-nm 632.8 --fwhm-nm 10 --mirror-2-azimuth-urad 2500 --mirror-2-cenital-urad 500 --output-dir outputs/demo
+python -m michelson.cli --source rectangular --wavelength-nm 632.8 --width-nm 20 --mirror-2-azimuth-udeg 143239 --mirror-2-cenital-udeg 28648 --output-dir outputs/demo
 ```
 
 Archivos generados:
@@ -101,10 +102,10 @@ python -m michelson.gui
 
 Desde la ventana se pueden modificar:
 
-- fuente monocromatica, gaussiana o espectro CSV;
+- fuente monocromatica, rectangular uniforme o espectro CSV;
 - inclinacion azimutal/cenital de ambos espejos;
 - desplazamiento axial del espejo 2;
-- OPD fija, zoom, campo de camara, resolucion, intensidades y contraste.
+- OPD fija, zoom de camara, zoom de perfil, campo de camara, resolucion, intensidades y contraste.
 
 La vista superior muestra el patron de la camara. La linea cyan indica por
 donde se toma el perfil perpendicular a las franjas. La vista inferior muestra
@@ -116,15 +117,15 @@ maximos/minimos locales.
 Fuente monocromatica ideal con inclinacion relativa directa:
 
 ```powershell
-python -m michelson.cli --source mono --wavelength-nm 632.8 --tilt-azimuth-urad 100 --tilt-cenital-urad 0 --output-dir outputs/mono
+python -m michelson.cli --source mono --wavelength-nm 632.8 --tilt-azimuth-udeg 5730 --tilt-cenital-udeg 0 --output-dir outputs/mono
 ```
 
 Ambos espejos inclinados: solo importa la diferencia relativa para las franjas.
-Aqui el espejo 1 esta en 300 urad y el espejo 2 en 2800 urad, por tanto la
-inclinacion relativa azimutal es 2500 urad.
+Aqui el espejo 1 esta en 17189 u° y el espejo 2 en 160428 u°, por tanto la
+inclinacion relativa azimutal equivale a 2500 urad.
 
 ```powershell
-python -m michelson.cli --mirror-1-azimuth-urad 300 --mirror-1-cenital-urad 100 --mirror-2-azimuth-urad 2800 --mirror-2-cenital-urad 600 --output-dir outputs/two_mirrors
+python -m michelson.cli --mirror-1-azimuth-udeg 17189 --mirror-1-cenital-udeg 5730 --mirror-2-azimuth-udeg 160428 --mirror-2-cenital-udeg 34377 --output-dir outputs/two_mirrors
 ```
 
 Desplazamiento axial del espejo 2. Moverlo 5 um cambia la OPD central en 10 um:
@@ -133,30 +134,43 @@ Desplazamiento axial del espejo 2. Moverlo 5 um cambia la OPD central en 10 um:
 python -m michelson.cli --mirror-2-displacement-um 5 --output-dir outputs/displaced
 ```
 
-Fuente gaussiana de espectro ancho:
+Fuente rectangular de espectro ancho:
 
 ```powershell
-python -m michelson.cli --source gaussian --wavelength-nm 632.8 --fwhm-nm 20 --opd0-um 0 --tilt-azimuth-urad 4500 --tilt-cenital-urad 0 --output-dir outputs/gaussian_20nm
+python -m michelson.cli --source rectangular --wavelength-nm 632.8 --width-nm 20 --opd0-um 0 --tilt-azimuth-udeg 257831 --tilt-cenital-udeg 0 --output-dir outputs/rectangular_20nm
 ```
 
-Zoom optico de la camara simulada:
+Zoom optico de la camara simulada. Este zoom solo recorta la vista de franjas;
+el perfil perpendicular sigue usando el ancho fisico configurado de la camara:
 
 ```powershell
 python -m michelson.cli --zoom 3 --output-dir outputs/zoom_3
 ```
 
-## Longitud de coherencia
+Zoom visual del perfil perpendicular:
 
-Para espectros gaussianos, el programa reporta la longitud de coherencia como
-el FWHM de la envolvente de visibilidad en OPD:
-
-```text
-Lc = (4 ln 2 / pi) * lambda0^2 / Delta_lambda
+```powershell
+python -m michelson.cli --profile-zoom 4 --output-dir outputs/profile_zoom_4
 ```
 
-Tambien reporta el FWHM obtenido numericamente desde la visibilidad calculada
-en el perfil. Si el campo de vision o la inclinacion no cubren suficiente rango
-de OPD, el resumen lo indica.
+## Longitud de coherencia
+
+Para espectros rectangulares, el programa reporta el FWHM aproximado de la
+envolvente de visibilidad en OPD:
+
+```text
+Lc ~= 1.206709 * lambda0^2 / Delta_lambda
+```
+
+Tambien reporta el primer cero aproximado:
+
+```text
+L0 ~= lambda0^2 / Delta_lambda
+```
+
+El programa compara esos valores con el FWHM obtenido numericamente desde la
+visibilidad calculada en el perfil. Si el campo de vision o la inclinacion no
+cubren suficiente rango de OPD, el resumen lo indica.
 
 ## Espectro personalizado
 

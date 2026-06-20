@@ -34,7 +34,26 @@ def save_pattern_png(path: str | Path, intensity: np.ndarray) -> None:
     image.save(path)
 
 
-def save_profile_plot_png(path: str | Path, profile: dict[str, np.ndarray], width: int = 1000, height: int = 520) -> None:
+def _profile_zoom_mask(x_values: np.ndarray, profile_zoom: float) -> np.ndarray:
+    """Selecciona la region visible del perfil alrededor de s=0."""
+
+    if profile_zoom <= 1:
+        return np.ones(x_values.shape, dtype=bool)
+
+    x_min = float(np.nanmin(x_values))
+    x_max = float(np.nanmax(x_values))
+    center = 0.5 * (x_min + x_max)
+    half_range = 0.5 * (x_max - x_min) / profile_zoom
+    return (x_values >= center - half_range) & (x_values <= center + half_range)
+
+
+def save_profile_plot_png(
+    path: str | Path,
+    profile: dict[str, np.ndarray],
+    width: int = 1000,
+    height: int = 520,
+    profile_zoom: float = 1.0,
+) -> None:
     """Dibuja una grafica simple del perfil sin usar librerias pesadas."""
 
     # Margenes del area de grafica dentro del PNG.
@@ -54,6 +73,12 @@ def save_profile_plot_png(path: str | Path, profile: dict[str, np.ndarray], widt
     x_values = profile["s_m"] * 1e3
     intensity = np.asarray(profile["intensity"], dtype=float)
     visibility = np.asarray(profile["visibility"], dtype=float)
+    mask = _profile_zoom_mask(x_values, profile_zoom)
+    if np.count_nonzero(mask) < 2:
+        mask = np.ones(x_values.shape, dtype=bool)
+    x_values = x_values[mask]
+    intensity = intensity[mask]
+    visibility = visibility[mask]
 
     # Escalas de los ejes. La visibilidad siempre se dibuja entre 0 y 1.
     x_min = float(np.nanmin(x_values))

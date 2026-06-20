@@ -23,15 +23,20 @@ from .simulation import (
     Spectrum,
     fwhm_from_curve,
     fringe_spacing_m,
-    gaussian_spectrum,
+    microdegrees_to_rad,
     monochromatic_spectrum,
     profile_along_fringe_normal,
+    rad_to_microdegrees,
+    rectangular_spectrum,
     save_npz,
     save_profile_csv,
     simulate_camera,
     spectrum_from_csv,
-    theoretical_gaussian_coherence_length_fwhm_m,
+    theoretical_rectangular_coherence_length_fwhm_m,
 )
+
+DEFAULT_MIRROR_2_AZIMUTH_UDEG = float(rad_to_microdegrees(2500e-6))
+DEFAULT_MIRROR_2_CENITAL_UDEG = float(rad_to_microdegrees(500e-6))
 
 
 class MichelsonApp(tk.Tk):
@@ -66,17 +71,17 @@ class MichelsonApp(tk.Tk):
         """Crea las variables enlazadas a controles de tkinter."""
 
         # Fuente luminosa.
-        self.source_var = tk.StringVar(value="gaussian")
+        self.source_var = tk.StringVar(value="rectangular")
         self.wavelength_nm_var = tk.DoubleVar(value=632.8)
-        self.fwhm_nm_var = tk.DoubleVar(value=10.0)
+        self.width_nm_var = tk.DoubleVar(value=20.0)
         self.spectrum_samples_var = tk.IntVar(value=801)
         self.spectrum_csv_var = tk.StringVar(value="")
 
-        # Inclinaciones de los dos espejos en microradianes.
+        # Inclinaciones de los dos espejos en microgrados.
         self.m1_azimuth_var = tk.DoubleVar(value=0.0)
         self.m1_cenital_var = tk.DoubleVar(value=0.0)
-        self.m2_azimuth_var = tk.DoubleVar(value=2500.0)
-        self.m2_cenital_var = tk.DoubleVar(value=500.0)
+        self.m2_azimuth_var = tk.DoubleVar(value=DEFAULT_MIRROR_2_AZIMUTH_UDEG)
+        self.m2_cenital_var = tk.DoubleVar(value=DEFAULT_MIRROR_2_CENITAL_UDEG)
 
         # Diferencia fija de camino optico y desplazamiento del espejo 2.
         self.opd0_um_var = tk.DoubleVar(value=0.0)
@@ -88,6 +93,7 @@ class MichelsonApp(tk.Tk):
         self.camera_width_mm_var = tk.DoubleVar(value=8.0)
         self.camera_height_mm_var = tk.DoubleVar(value=6.0)
         self.zoom_var = tk.DoubleVar(value=1.0)
+        self.profile_zoom_var = tk.DoubleVar(value=1.0)
         self.profile_samples_var = tk.IntVar(value=1800)
 
         # Intensidades y contraste experimental.
@@ -168,9 +174,9 @@ class MichelsonApp(tk.Tk):
     def _build_source_controls(self, parent: ttk.Frame) -> None:
         """Controles asociados al espectro de la fuente."""
 
-        self._combo(parent, "Tipo", self.source_var, ("gaussian", "mono", "csv"), row=0)
+        self._combo(parent, "Tipo", self.source_var, ("rectangular", "mono", "csv"), row=0)
         self._entry(parent, "Lambda central [nm]", self.wavelength_nm_var, row=1)
-        self._entry(parent, "FWHM espectral [nm]", self.fwhm_nm_var, row=2)
+        self._entry(parent, "Ancho espectral [nm]", self.width_nm_var, row=2)
         self._entry(parent, "Muestras espectro", self.spectrum_samples_var, row=3)
 
         csv_frame = ttk.Frame(parent)
@@ -183,14 +189,14 @@ class MichelsonApp(tk.Tk):
         """Controles de inclinacion y desplazamiento de espejos."""
 
         ttk.Label(parent, text="Espejo 1", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, columnspan=2, sticky="w")
-        self._slider(parent, "Azimutal [urad]", self.m1_azimuth_var, -5000, 5000, row=1)
-        self._slider(parent, "Cenital [urad]", self.m1_cenital_var, -5000, 5000, row=2)
+        self._slider(parent, "Azimutal [u°]", self.m1_azimuth_var, -300000, 300000, row=1)
+        self._slider(parent, "Cenital [u°]", self.m1_cenital_var, -300000, 300000, row=2)
 
         ttk.Separator(parent).grid(row=3, column=0, columnspan=2, sticky="ew", pady=10)
 
         ttk.Label(parent, text="Espejo 2", font=("Segoe UI", 10, "bold")).grid(row=4, column=0, columnspan=2, sticky="w")
-        self._slider(parent, "Azimutal [urad]", self.m2_azimuth_var, -5000, 5000, row=5)
-        self._slider(parent, "Cenital [urad]", self.m2_cenital_var, -5000, 5000, row=6)
+        self._slider(parent, "Azimutal [u°]", self.m2_azimuth_var, -300000, 300000, row=5)
+        self._slider(parent, "Cenital [u°]", self.m2_cenital_var, -300000, 300000, row=6)
         self._slider(parent, "Desplazamiento [um]", self.m2_displacement_um_var, -50, 50, row=7)
         self._slider(parent, "OPD fija [um]", self.opd0_um_var, -50, 50, row=8)
 
@@ -201,8 +207,9 @@ class MichelsonApp(tk.Tk):
         self._entry(parent, "Pixeles Y", self.pixels_y_var, row=1)
         self._entry(parent, "Ancho [mm]", self.camera_width_mm_var, row=2)
         self._entry(parent, "Alto [mm]", self.camera_height_mm_var, row=3)
-        self._slider(parent, "Zoom", self.zoom_var, 0.5, 8.0, row=4)
-        self._entry(parent, "Puntos perfil", self.profile_samples_var, row=5)
+        self._slider(parent, "Zoom camara", self.zoom_var, 0.5, 8.0, row=4)
+        self._slider(parent, "Zoom perfil", self.profile_zoom_var, 1.0, 20.0, row=5)
+        self._entry(parent, "Puntos perfil", self.profile_samples_var, row=6)
 
     def _build_beam_controls(self, parent: ttk.Frame) -> None:
         """Controles de intensidades relativas y contraste adicional."""
@@ -280,7 +287,7 @@ class MichelsonApp(tk.Tk):
         variables: list[tk.Variable] = [
             self.source_var,
             self.wavelength_nm_var,
-            self.fwhm_nm_var,
+            self.width_nm_var,
             self.spectrum_samples_var,
             self.spectrum_csv_var,
             self.m1_azimuth_var,
@@ -294,6 +301,7 @@ class MichelsonApp(tk.Tk):
             self.camera_width_mm_var,
             self.camera_height_mm_var,
             self.zoom_var,
+            self.profile_zoom_var,
             self.profile_samples_var,
             self.intensity_1_var,
             self.intensity_2_var,
@@ -330,10 +338,10 @@ class MichelsonApp(tk.Tk):
 
         if source == "mono":
             return monochromatic_spectrum(wavelength_nm)
-        if source == "gaussian":
-            return gaussian_spectrum(
+        if source == "rectangular":
+            return rectangular_spectrum(
                 center_nm=wavelength_nm,
-                fwhm_nm=float(self.fwhm_nm_var.get()),
+                width_nm=float(self.width_nm_var.get()),
                 samples=max(3, int(self.spectrum_samples_var.get())),
             )
 
@@ -353,10 +361,10 @@ class MichelsonApp(tk.Tk):
             zoom=float(self.zoom_var.get()),
         )
         return MichelsonConfig(
-            mirror_1_azimuth_rad=float(self.m1_azimuth_var.get()) * 1e-6,
-            mirror_1_cenital_rad=float(self.m1_cenital_var.get()) * 1e-6,
-            mirror_2_azimuth_rad=float(self.m2_azimuth_var.get()) * 1e-6,
-            mirror_2_cenital_rad=float(self.m2_cenital_var.get()) * 1e-6,
+            mirror_1_azimuth_rad=float(microdegrees_to_rad(self.m1_azimuth_var.get())),
+            mirror_1_cenital_rad=float(microdegrees_to_rad(self.m1_cenital_var.get())),
+            mirror_2_azimuth_rad=float(microdegrees_to_rad(self.m2_azimuth_var.get())),
+            mirror_2_cenital_rad=float(microdegrees_to_rad(self.m2_cenital_var.get())),
             mirror_2_displacement_m=float(self.m2_displacement_um_var.get()) * 1e-6,
             opd0_m=float(self.opd0_um_var.get()) * 1e-6,
             intensity_1=float(self.intensity_1_var.get()),
@@ -426,13 +434,31 @@ class MichelsonApp(tk.Tk):
 
         width = self.config.camera.visible_width_m
         height = self.config.camera.visible_height_m
-        x = self.profile["x_m"]
-        y = self.profile["y_m"]
+        tilt = self.config.tilt_magnitude_rad
+        if tilt == 0:
+            direction = np.array([1.0, 0.0])
+        else:
+            direction = np.array([self.config.relative_azimuth_rad, self.config.relative_cenital_rad]) / tilt
 
-        x0 = left + (x[0] + 0.5 * width) / width * image_w
-        y0 = top + (0.5 * height - y[0]) / height * image_h
-        x1 = left + (x[-1] + 0.5 * width) / width * image_w
-        y1 = top + (0.5 * height - y[-1]) / height * image_h
+        # El perfil completo puede cubrir mas campo que la imagen cuando hay
+        # zoom de camara. Aqui solo se dibuja el tramo visible de esa misma
+        # recta sobre el recorte mostrado.
+        limits: list[float] = []
+        if abs(direction[0]) > 1e-15:
+            limits.append(0.5 * width / abs(direction[0]))
+        if abs(direction[1]) > 1e-15:
+            limits.append(0.5 * height / abs(direction[1]))
+        half_length = min(limits) if limits else 0.5 * width
+
+        x0_m = -half_length * direction[0]
+        y0_m = -half_length * direction[1]
+        x1_m = half_length * direction[0]
+        y1_m = half_length * direction[1]
+
+        x0 = left + (x0_m + 0.5 * width) / width * image_w
+        y0 = top + (0.5 * height - y0_m) / height * image_h
+        x1 = left + (x1_m + 0.5 * width) / width * image_w
+        y1 = top + (0.5 * height - y1_m) / height * image_h
         canvas.create_line(x0, y0, x1, y1, fill="#48d7ff", width=2)
 
     def draw_profile(self) -> None:
@@ -456,6 +482,19 @@ class MichelsonApp(tk.Tk):
         intensity = np.asarray(self.profile["intensity"], dtype=float)
         visibility = np.asarray(self.profile["visibility"], dtype=float)
         estimated = np.asarray(self.profile["estimated_visibility"], dtype=float)
+
+        profile_zoom = max(1.0, float(self.profile_zoom_var.get()))
+        if profile_zoom > 1:
+            full_min = float(np.nanmin(x_values))
+            full_max = float(np.nanmax(x_values))
+            center = 0.5 * (full_min + full_max)
+            half_range = 0.5 * (full_max - full_min) / profile_zoom
+            mask = (x_values >= center - half_range) & (x_values <= center + half_range)
+            if np.any(mask):
+                x_values = x_values[mask]
+                intensity = intensity[mask]
+                visibility = visibility[mask]
+                estimated = estimated[mask]
 
         x_min = float(np.nanmin(x_values))
         x_max = float(np.nanmax(x_values))
@@ -537,11 +576,12 @@ class MichelsonApp(tk.Tk):
         numeric_lc = fwhm_from_curve(self.profile["opd_m"], self.profile["visibility"])
 
         lines = [
-            f"Tilt relativo az: {self.config.relative_azimuth_rad * 1e6:.3g} urad",
-            f"Tilt relativo cen: {self.config.relative_cenital_rad * 1e6:.3g} urad",
-            f"Tilt relativo total: {self.config.tilt_magnitude_rad * 1e6:.3g} urad",
+            f"Tilt relativo az: {float(rad_to_microdegrees(self.config.relative_azimuth_rad)):.3g} u°",
+            f"Tilt relativo cen: {float(rad_to_microdegrees(self.config.relative_cenital_rad)):.3g} u°",
+            f"Tilt relativo total: {float(rad_to_microdegrees(self.config.tilt_magnitude_rad)):.3g} u°",
             f"OPD central: {self.config.center_opd_m * 1e6:.3g} um",
             f"Separacion franjas: {spacing * 1e3:.3g} mm",
+            f"Zoom perfil: {float(self.profile_zoom_var.get()):.3g}",
         ]
 
         if np.isfinite(numeric_lc):
@@ -549,9 +589,10 @@ class MichelsonApp(tk.Tk):
         else:
             lines.append("Lc simulada: fuera del campo")
 
-        if self.spectrum.fwhm_m and self.spectrum.fwhm_m > 0:
-            theoretical = theoretical_gaussian_coherence_length_fwhm_m(lambda0, self.spectrum.fwhm_m)
-            lines.append(f"Lc teorica: {theoretical * 1e6:.3g} um OPD")
+        if self.spectrum.shape == "rectangular":
+            width_m = float(self.spectrum.wavelengths_m[-1] - self.spectrum.wavelengths_m[0])
+            theoretical = theoretical_rectangular_coherence_length_fwhm_m(lambda0, width_m)
+            lines.append(f"Lc teorica rect.: {theoretical * 1e6:.3g} um OPD")
 
         self.summary_var.set("\n".join(lines))
 
@@ -570,7 +611,7 @@ class MichelsonApp(tk.Tk):
         output_dir.mkdir(parents=True, exist_ok=True)
         save_pattern_png(output_dir / "pattern.png", self.result.intensity)
         save_profile_csv(output_dir / "profile.csv", self.profile)
-        save_profile_plot_png(output_dir / "profile.png", self.profile)
+        save_profile_plot_png(output_dir / "profile.png", self.profile, profile_zoom=float(self.profile_zoom_var.get()))
         save_npz(output_dir / "simulation.npz", self.result, self.profile)
         (output_dir / "summary_gui.txt").write_text(self.summary_var.get(), encoding="utf-8")
         self.status_var.set(f"Resultados guardados en {output_dir}")

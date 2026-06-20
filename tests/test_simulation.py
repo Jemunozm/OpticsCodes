@@ -14,11 +14,14 @@ from michelson.simulation import (
     MichelsonConfig,
     fwhm_from_curve,
     fringe_spacing_m,
-    gaussian_spectrum,
     intensity_from_opd,
+    microdegrees_to_rad,
+    microradians_to_rad,
     monochromatic_spectrum,
     profile_along_fringe_normal,
-    theoretical_gaussian_coherence_length_fwhm_m,
+    rad_to_microdegrees,
+    rectangular_spectrum,
+    theoretical_rectangular_coherence_length_fwhm_m,
 )
 
 
@@ -40,6 +43,13 @@ class SimulationTests(unittest.TestCase):
         self.assertAlmostEqual(config.relative_cenital_rad, 10e-6)
         self.assertAlmostEqual(config.mirror_2_azimuth_rad, 50e-6)
         self.assertAlmostEqual(config.mirror_2_cenital_rad, 10e-6)
+
+    def test_microdegree_conversions_match_radians(self):
+        """La interfaz usa microgrados, pero el nucleo conserva radianes."""
+
+        self.assertAlmostEqual(microdegrees_to_rad(180.0e6), math.pi)
+        self.assertAlmostEqual(rad_to_microdegrees(math.pi), 180.0e6)
+        self.assertAlmostEqual(microradians_to_rad(100.0), 100e-6)
 
     def test_two_absolute_mirror_tilts_reduce_to_relative_tilt(self):
         """Si ambos espejos se inclinan, las franjas dependen de la diferencia."""
@@ -75,15 +85,25 @@ class SimulationTests(unittest.TestCase):
         self.assertAlmostEqual(float(intensity[1]), 0.0, places=12)
         self.assertTrue(np.allclose(visibility, 1.0))
 
-    def test_gaussian_numeric_coherence_matches_closed_form(self):
-        """El FWHM numerico de la visibilidad debe coincidir con la teoria."""
+    def test_rectangular_spectrum_is_uniform_over_requested_width(self):
+        """La fuente rectangular cubre una banda uniforme de longitud de onda."""
 
-        spectrum = gaussian_spectrum(center_nm=632.8, fwhm_nm=10.0, samples=1201)
-        theoretical = theoretical_gaussian_coherence_length_fwhm_m(632.8e-9, 10.0e-9)
+        spectrum = rectangular_spectrum(center_nm=632.8, width_nm=10.0, samples=101)
+        self.assertEqual(spectrum.shape, "rectangular")
+        self.assertAlmostEqual(float(spectrum.wavelengths_m[0]), 627.8e-9)
+        self.assertAlmostEqual(float(spectrum.wavelengths_m[-1]), 637.8e-9)
+        self.assertTrue(np.allclose(spectrum.weights, np.full(101, 1.0 / 101)))
+        self.assertTrue(np.all(np.isfinite(spectrum.visibility_envelope(np.linspace(-1e-6, 1e-6, 5)))))
+
+    def test_rectangular_numeric_coherence_matches_sinc_fwhm_approximation(self):
+        """El FWHM numerico rectangular debe acercarse a la teoria de sinc."""
+
+        spectrum = rectangular_spectrum(center_nm=632.8, width_nm=10.0, samples=2401)
+        theoretical = theoretical_rectangular_coherence_length_fwhm_m(632.8e-9, 10.0e-9)
         opd = np.linspace(-2.0 * theoretical, 2.0 * theoretical, 3500)
         numeric = fwhm_from_curve(opd, spectrum.visibility_envelope(opd))
         self.assertTrue(math.isfinite(numeric))
-        self.assertLess(abs(numeric - theoretical) / theoretical, 0.025)
+        self.assertLess(abs(numeric - theoretical) / theoretical, 0.05)
 
     def test_profile_runs_through_camera_center_and_reports_opd(self):
         """El punto central del perfil debe coincidir con la OPD central."""
@@ -95,6 +115,15 @@ class SimulationTests(unittest.TestCase):
         self.assertAlmostEqual(float(profile["x_m"][center]), 0.0, places=15)
         self.assertAlmostEqual(float(profile["y_m"][center]), 0.0, places=15)
         self.assertAlmostEqual(float(profile["opd_m"][center]), 3e-6, places=15)
+
+    def test_camera_zoom_does_not_shrink_profile_width(self):
+        """El zoom de camara no debe cambiar el ancho fisico del perfil."""
+
+        camera = Camera(pixels_x=100, pixels_y=80, width_m=8e-3, height_m=6e-3, zoom=4.0)
+        config = MichelsonConfig(tilt_x_rad=50e-6, tilt_y_rad=0.0, camera=camera)
+        profile = profile_along_fringe_normal(config, monochromatic_spectrum(), samples=11)
+        self.assertAlmostEqual(float(profile["s_m"][0]), -4e-3)
+        self.assertAlmostEqual(float(profile["s_m"][-1]), 4e-3)
 
 
 if __name__ == "__main__":

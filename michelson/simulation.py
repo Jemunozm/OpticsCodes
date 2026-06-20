@@ -26,6 +26,37 @@ from typing import Iterable
 
 import numpy as np
 
+RADIANS_PER_MICRODEGREE = np.pi / 180.0e6
+MICRODEGREES_PER_RADIAN = 180.0e6 / np.pi
+
+
+def microdegrees_to_rad(angle_udeg: float | np.ndarray) -> float | np.ndarray:
+    """Convierte microgrados a radianes."""
+
+    result = np.asarray(angle_udeg) * RADIANS_PER_MICRODEGREE
+    return float(result) if np.isscalar(angle_udeg) else result
+
+
+def rad_to_microdegrees(angle_rad: float | np.ndarray) -> float | np.ndarray:
+    """Convierte radianes a microgrados."""
+
+    result = np.asarray(angle_rad) * MICRODEGREES_PER_RADIAN
+    return float(result) if np.isscalar(angle_rad) else result
+
+
+def microradians_to_rad(angle_urad: float | np.ndarray) -> float | np.ndarray:
+    """Convierte microradianes a radianes."""
+
+    result = np.asarray(angle_urad) * 1e-6
+    return float(result) if np.isscalar(angle_urad) else result
+
+
+def rad_to_microradians(angle_rad: float | np.ndarray) -> float | np.ndarray:
+    """Convierte radianes a microradianes."""
+
+    result = np.asarray(angle_rad) * 1e6
+    return float(result) if np.isscalar(angle_rad) else result
+
 
 @dataclass(frozen=True)
 class Camera:
@@ -139,21 +170,11 @@ class Spectrum:
         - su fase genera las franjas claras y oscuras;
         - su magnitud es la envolvente de visibilidad.
 
-        Para espectros gaussianos se usa la aproximacion analitica de banda
-        angosta. Para espectros CSV personalizados se integra numericamente.
+        Para espectros de banda ancha y CSV personalizados se integra
+        numericamente sobre las muestras de longitud de onda.
         """
 
         opd = np.asarray(opd_m, dtype=float)
-
-        # Caso gaussiano: expresion cerrada para la envolvente de coherencia.
-        if self.shape == "gaussian" and self.center_wavelength_m and self.fwhm_m:
-            lc_fwhm = theoretical_gaussian_coherence_length_fwhm_m(
-                self.center_wavelength_m,
-                self.fwhm_m,
-            )
-            envelope = np.exp(-4.0 * np.log(2.0) * (opd / lc_fwhm) ** 2)
-            phase = 2.0 * np.pi * opd / self.center_wavelength_m
-            return envelope * np.exp(1j * phase)
 
         # Caso monocromatico: no hay perdida de visibilidad con OPD.
         if self.is_monochromatic:
@@ -299,40 +320,33 @@ def monochromatic_spectrum(wavelength_nm: float = 632.8) -> Spectrum:
     )
 
 
-def gaussian_spectrum(
+def rectangular_spectrum(
     center_nm: float = 632.8,
-    fwhm_nm: float = 10.0,
+    width_nm: float = 20.0,
     samples: int = 801,
-    span_fwhm: float = 6.0,
 ) -> Spectrum:
-    """Crea una fuente con espectro gaussiano.
+    """Crea una fuente de espectro rectangular uniforme en longitud de onda."""
 
-    El arreglo discreto queda disponible para inspeccion, pero la coherencia de
-    esta forma espectral se evalua con la formula analitica de banda angosta.
-    """
-
-    if fwhm_nm <= 0:
-        raise ValueError("fwhm_nm must be positive for a Gaussian spectrum")
+    if width_nm <= 0:
+        raise ValueError("width_nm must be positive for a rectangular spectrum")
     if samples < 3:
         raise ValueError("samples must be at least 3")
 
-    # Se muestrea una ventana centrada en lambda0 para poder guardar el espectro.
-    half_span_nm = 0.5 * span_fwhm * fwhm_nm
-    start_nm = max(1e-6, center_nm - half_span_nm)
-    stop_nm = center_nm + half_span_nm
-    wavelengths_nm = np.linspace(start_nm, stop_nm, samples)
+    start_nm = center_nm - 0.5 * width_nm
+    stop_nm = center_nm + 0.5 * width_nm
+    if start_nm <= 0:
+        raise ValueError("rectangular spectrum lower wavelength must be positive")
 
-    # Conversion entre FWHM y desviacion estandar de una gaussiana.
-    sigma_nm = fwhm_nm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-    weights = np.exp(-0.5 * ((wavelengths_nm - center_nm) / sigma_nm) ** 2)
+    wavelengths_nm = np.linspace(start_nm, stop_nm, samples)
+    weights = np.ones(samples, dtype=float)
 
     return Spectrum(
         wavelengths_m=wavelengths_nm * 1e-9,
         weights=weights,
-        name=f"Gaussian {center_nm:g} nm FWHM {fwhm_nm:g} nm",
+        name=f"Rectangular {center_nm:g} nm width {width_nm:g} nm",
         center_wavelength_m=center_nm * 1e-9,
-        fwhm_m=fwhm_nm * 1e-9,
-        shape="gaussian",
+        fwhm_m=None,
+        shape="rectangular",
     )
 
 
@@ -399,19 +413,25 @@ def fringe_spacing_m(wavelength_m: float, tilt_x_rad: float, tilt_y_rad: float) 
     return wavelength_m / (2.0 * tilt)
 
 
-def theoretical_gaussian_coherence_length_fwhm_m(center_wavelength_m: float, fwhm_m: float) -> float:
-    """Longitud de coherencia teorica FWHM para espectro gaussiano.
+def theoretical_rectangular_coherence_length_fwhm_m(center_wavelength_m: float, width_m: float) -> float:
+    """FWHM aproximado de visibilidad para un espectro rectangular.
 
-    Se reporta como ancho completo a media altura de la visibilidad en OPD:
-
-        Lc = (4 ln 2 / pi) * lambda0^2 / Delta_lambda
-
-    usando la aproximacion de banda angosta Delta_nu ~= c Delta_lambda/lambda0^2.
+    Para una banda rectangular uniforme en frecuencia, la envolvente es sinc.
+    El FWHM completo es aproximadamente 1.206709 * lambda0^2 / Delta_lambda.
+    La aproximacion usa Delta_nu ~= c Delta_lambda / lambda0^2.
     """
 
-    if fwhm_m <= 0:
+    if width_m <= 0:
         return np.inf
-    return (4.0 * np.log(2.0) / np.pi) * (center_wavelength_m**2 / fwhm_m)
+    return 1.2067091288032282 * (center_wavelength_m**2 / width_m)
+
+
+def theoretical_rectangular_first_zero_m(center_wavelength_m: float, width_m: float) -> float:
+    """Primer cero aproximado de coherencia para espectro rectangular."""
+
+    if width_m <= 0:
+        return np.inf
+    return center_wavelength_m**2 / width_m
 
 
 def fwhm_from_curve(x: np.ndarray, y: np.ndarray) -> float:
@@ -469,9 +489,11 @@ def profile_along_fringe_normal(
     else:
         direction = np.array([config.relative_azimuth_rad, config.relative_cenital_rad]) / tilt
 
-    # Se calcula la linea mas larga posible que cabe completa dentro del sensor.
-    width = config.camera.visible_width_m
-    height = config.camera.visible_height_m
+    # Se calcula la linea mas larga posible que cabe dentro del sensor completo.
+    # Esto se mantiene independiente del zoom de camara: el zoom solo cambia la
+    # vista de las franjas, no el ancho fisico usado para el perfil.
+    width = config.camera.width_m
+    height = config.camera.height_m
     limits: list[float] = []
     if abs(direction[0]) > 1e-15:
         limits.append(0.5 * width / abs(direction[0]))
